@@ -1,5 +1,6 @@
 mod delivery;
 mod endpoint;
+mod worker;
 
 use axum::{
     extract::State,
@@ -23,7 +24,7 @@ async fn main() {
         .connect(&database_url)
         .await
         .expect("could not connect to PostgreSQL");
-
+        tokio::spawn(worker::run(pool.clone()));
     let app = Router::new()
         .route("/health", get(health))
         .route("/endpoints", post(create_endpoint))
