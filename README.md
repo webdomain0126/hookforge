@@ -9,7 +9,7 @@ An app hands HookForge a message and a receiver URL. HookForge stores it, delive
 ## Roadmap
 
 - [x] M1: Core types: delivery status, endpoint validation, unit tests
-- [ ] M2: PostgreSQL tables
+- [x] M2: PostgreSQL tables
 - [ ] M3: HTTP API for endpoints and events (Axum)
 - [ ] M4: Workers that claim and send deliveries (`FOR UPDATE SKIP LOCKED`)
 - [ ] M5: HMAC-SHA256 signatures
