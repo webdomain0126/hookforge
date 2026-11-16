@@ -1,7 +1,8 @@
+use serde::Deserialize;
 use thiserror::Error;
 
 /// What a customer sends us when they register a new endpoint.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct NewEndpoint {
     pub url: String,
     pub secret: String,
@@ -20,6 +21,7 @@ pub enum ValidationError {
     #[error("max_per_second must be between 1 and 1000")]
     RateOutOfRange,
 }
+
 impl NewEndpoint {
     /// Checks the endpoint. Returns Ok(()) if it is valid,
     /// or the first mistake found.
@@ -39,6 +41,7 @@ impl NewEndpoint {
         Ok(())
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
