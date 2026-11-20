@@ -13,7 +13,7 @@ An app hands HookForge a message and a receiver URL. HookForge stores it, delive
 - [x] M3: HTTP API for endpoints and events (Axum)
 - [x] M4: Workers that claim and send deliveries (`FOR UPDATE SKIP LOCKED`)
 - [x] M5: HMAC-SHA256 signatures
-- [ ] M6: Retries, exponential backoff, attempt log
+- [x] M6: Retries, exponential backoff, attempt log
 - [ ] M7: Worker pool, crash recovery, graceful shutdown
 - [ ] M8: Per-receiver rate limits (Redis)
 - [ ] M9: Tracing, Docker, integration tests, docs

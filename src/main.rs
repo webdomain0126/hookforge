@@ -2,6 +2,7 @@ mod delivery;
 mod endpoint;
 mod worker;
 mod signature;
+mod retry;
 
 use axum::{
     extract::State,
