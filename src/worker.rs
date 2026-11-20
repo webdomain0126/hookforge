@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use sqlx::PgPool;
+use tokio::sync::watch;
 
 use crate::{retry, signature};
 
@@ -14,18 +15,26 @@ struct Job {
     payload: Value,
 }
 
-/// Runs forever: claim one pending delivery, send it, repeat.
-pub async fn run(pool: PgPool) {
+/// Runs until shutdown: claim one pending delivery, send it, repeat.
+pub async fn run(worker_id: u32, pool: PgPool, shutdown: watch::Receiver<bool>) {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
         .expect("could not build HTTP client");
 
-    println!("worker started");
+    println!("worker {worker_id} started");
 
     loop {
+        if *shutdown.borrow() {
+            println!("worker {worker_id} stopped");
+            return;
+        }
+
         match claim_one(&pool).await {
-            Ok(Some(job)) => deliver(&pool, &client, job).await,
+            Ok(Some(job)) => {
+                println!("worker {worker_id} claimed delivery {}", job.id);
+                deliver(&pool, &client, job).await;
+            }
             Ok(None) => tokio::time::sleep(Duration::from_secs(1)).await,
             Err(e) => {
                 eprintln!("worker: claim failed: {e}");
@@ -46,7 +55,8 @@ async fn claim_one(pool: &PgPool) -> Result<Option<Job>, sqlx::Error> {
              FOR UPDATE SKIP LOCKED
          )
          UPDATE deliveries d
-         SET status = 'delivering', attempts = d.attempts + 1
+         SET status = 'delivering', attempts = d.attempts + 1,
+             locked_until = now() + interval '60 seconds'
          FROM next, endpoints e
          WHERE d.id = next.id AND e.id = d.endpoint_id
          RETURNING d.id, d.attempts, e.url, e.secret, d.payload",
