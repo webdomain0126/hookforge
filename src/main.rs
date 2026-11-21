@@ -1,9 +1,12 @@
 mod delivery;
 mod endpoint;
+mod ratelimit;
 mod reaper;
 mod retry;
 mod signature;
 mod worker;
+
+use std::sync::Arc;
 
 use axum::{
     extract::State,
@@ -17,6 +20,7 @@ use sqlx::{postgres::PgPoolOptions, PgPool};
 use tokio::sync::watch;
 
 use endpoint::NewEndpoint;
+use ratelimit::RateLimiter;
 
 #[tokio::main]
 async fn main() {
@@ -32,11 +36,15 @@ async fn main() {
     // A switch every worker watches. false = keep working, true = stop.
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
+    // One rate limiter, shared by all workers.
+    let limiter = Arc::new(RateLimiter::new());
+
     let mut workers = Vec::new();
     for worker_id in 1..=4 {
         workers.push(tokio::spawn(worker::run(
             worker_id,
             pool.clone(),
+            limiter.clone(),
             shutdown_rx.clone(),
         )));
     }

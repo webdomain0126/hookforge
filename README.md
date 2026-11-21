@@ -15,7 +15,7 @@ An app hands HookForge a message and a receiver URL. HookForge stores it, delive
 - [x] M5: HMAC-SHA256 signatures
 - [x] M6: Retries, exponential backoff, attempt log
 - [x] M7: Worker pool, crash recovery, graceful shutdown
-- [ ] M8: Per-receiver rate limits (Redis)
+- [x] M8: Per-endpoint rate limits (in-process token window; Redis planned for multi-instance)
 - [ ] M9: Tracing, Docker, integration tests, docs
 
 ## Run the tests

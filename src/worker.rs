@@ -1,22 +1,30 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use sqlx::PgPool;
 use tokio::sync::watch;
 
-use crate::{retry, signature};
+use crate::{ratelimit::RateLimiter, retry, signature};
 
 /// One claimed delivery, ready to send.
 struct Job {
     id: i64,
     attempts: i32,
+    endpoint_id: i64,
     url: String,
     secret: String,
+    max_per_second: i32,
     payload: Value,
 }
 
 /// Runs until shutdown: claim one pending delivery, send it, repeat.
-pub async fn run(worker_id: u32, pool: PgPool, shutdown: watch::Receiver<bool>) {
+pub async fn run(
+    worker_id: u32,
+    pool: PgPool,
+    limiter: Arc<RateLimiter>,
+    shutdown: watch::Receiver<bool>,
+) {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
@@ -32,6 +40,13 @@ pub async fn run(worker_id: u32, pool: PgPool, shutdown: watch::Receiver<bool>) 
 
         match claim_one(&pool).await {
             Ok(Some(job)) => {
+                // Too many sends to this endpoint this second? Put it back for later.
+                if !limiter.try_acquire(job.endpoint_id, job.max_per_second as u32) {
+                    release(&pool, job.id).await;
+                    println!("delivery {} -> rate limited, retry in 1s", job.id);
+                    continue;
+                }
+
                 println!("worker {worker_id} claimed delivery {}", job.id);
                 deliver(&pool, &client, job).await;
             }
@@ -46,7 +61,7 @@ pub async fn run(worker_id: u32, pool: PgPool, shutdown: watch::Receiver<bool>) 
 
 /// Finds one due delivery and marks it 'delivering' so no other worker takes it.
 async fn claim_one(pool: &PgPool) -> Result<Option<Job>, sqlx::Error> {
-    let row: Option<(i64, i32, String, String, Value)> = sqlx::query_as(
+    let row: Option<(i64, i32, i64, String, String, i32, Value)> = sqlx::query_as(
         "WITH next AS (
              SELECT id FROM deliveries
              WHERE status = 'pending' AND next_attempt_at <= now()
@@ -59,18 +74,38 @@ async fn claim_one(pool: &PgPool) -> Result<Option<Job>, sqlx::Error> {
              locked_until = now() + interval '60 seconds'
          FROM next, endpoints e
          WHERE d.id = next.id AND e.id = d.endpoint_id
-         RETURNING d.id, d.attempts, e.url, e.secret, d.payload",
+         RETURNING d.id, d.attempts, d.endpoint_id, e.url, e.secret, e.max_per_second, d.payload",
     )
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.map(|(id, attempts, url, secret, payload)| Job {
-        id,
-        attempts,
-        url,
-        secret,
-        payload,
-    }))
+    Ok(row.map(
+        |(id, attempts, endpoint_id, url, secret, max_per_second, payload)| Job {
+            id,
+            attempts,
+            endpoint_id,
+            url,
+            secret,
+            max_per_second,
+            payload,
+        },
+    ))
+}
+
+/// Gives a claimed delivery back without counting it as an attempt.
+async fn release(pool: &PgPool, id: i64) {
+    if let Err(e) = sqlx::query(
+        "UPDATE deliveries
+         SET status = 'pending', attempts = attempts - 1, locked_until = NULL,
+             next_attempt_at = now() + interval '1 second'
+         WHERE id = $1",
+    )
+    .bind(id)
+    .execute(pool)
+    .await
+    {
+        eprintln!("worker: could not release delivery {id}: {e}");
+    }
 }
 
 /// Signs and sends the payload, logs the attempt, and decides what happens next.
